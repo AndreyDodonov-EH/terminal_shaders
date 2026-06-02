@@ -5,9 +5,14 @@ Mostly AI-generated - different auroras are generated with different AIs.
 No background image required — the shader paints the whole sky.
 
 
-![Aurora in Windows Terminal, Claude Version](./terminal.png)
+**Aurora** (`aurora_claude.hlsl` and similar)
 
-Live version (of aurora_claude) on Shadertoy: <https://www.shadertoy.com/view/f3j3Wd>
+![Aurora demo](./aurora.gif)
+**Matrix rain** (`matrix_rain.hlsl`)
+
+![Matrix rain demo](./matrix.gif)
+
+Live aurora on Shadertoy: <https://www.shadertoy.com/view/f3j3Wd>
 
 ## Use in Windows Terminal
 
