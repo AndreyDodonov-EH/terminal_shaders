@@ -58,14 +58,18 @@ float fbm(float2 p)
 float ribbonStreaks(float2 p, float spine, float t, float seed)
 {
     // Fine structure inside the broad sheet. The streaks are present, but they
-    // are not the whole aurora.
-    float bend = sin((p.y - spine) * 7.0 + seed) * 0.045;
-    float x = p.x + bend + sin(p.y * 2.1 + t + seed) * 0.025;
-    float cell = frac(x * 34.0 + seed * 5.0);
-    float thin = pow(1.0 - abs(cell - 0.5) * 2.0, 4.5);
-    float broken = smoothstep(0.22, 0.78, fbm(float2(x * 3.0 + t * 0.25, p.y * 4.0 + seed)));
+    // are not the whole aurora. Several warped fields are blended so the result
+    // does not settle into parallel lines or diamond patterns.
+    float rise = spine - p.y;
+    float warp = (fbm(float2(p.x * 2.2 + seed, p.y * 2.8 - t)) - 0.5) * 0.18;
+    warp += sin(p.y * 2.4 + p.x * 1.1 + seed + t) * 0.035;
 
-    return thin * broken;
+    float x = p.x + warp + sin(rise * 4.0 + seed) * 0.030;
+    float softRays = smoothstep(0.50, 0.92, fbm(float2(x * 7.5 + t * 0.45, p.y * 1.35 + seed)));
+    float fineRays = smoothstep(0.58, 0.94, fbm(float2(x * 15.0 - t * 0.25, p.y * 2.1 + seed * 3.0)));
+    float broken = smoothstep(0.20, 0.82, fbm(float2(p.x * 3.4 - t * 0.2, p.y * 5.0 + seed)));
+
+    return (softRays * 0.55 + fineRays * 0.28) * broken;
 }
 
 float auroraRibbon(float2 uv, float seed, float yBase, float slope, float width, float height, float strength)
@@ -92,19 +96,19 @@ float auroraRibbon(float2 uv, float seed, float yBase, float slope, float width,
     float verticalFade = exp(-rise * height);
     float lowerFade = 1.0 - smoothstep(spine + 0.03, spine + 0.30, p.y);
     float sheetNoise = smoothstep(0.18, 0.88, fbm(float2(x * 1.15 + t, p.y * 2.25 - t * 0.6)));
-    float sheet = aboveArc * lowerFade * verticalFade * (0.55 + sheetNoise * 0.85);
+    float sheet = aboveArc * lowerFade * verticalFade * (0.42 + sheetNoise * 0.68);
 
     float streaks = ribbonStreaks(p, spine, t, seed) * sheet;
     float sideMask = smoothstep(-1.15, -0.35, p.x + seed) * (1.0 - smoothstep(0.65, 1.35, p.x + seed));
 
-    return (brightArc * 0.75 + sheet * 0.62 + streaks * 0.55) * sideMask * strength;
+    return (brightArc * 0.52 + sheet * 0.48 + streaks * 0.26) * sideMask * strength;
 }
 
 float3 auroraColor(float2 uv)
 {
-    float mainRibbon = auroraRibbon(uv, -0.10, 0.56, -0.10, 0.030, 2.8, 1.00);
-    float highRibbon = auroraRibbon(uv, 0.42, 0.43, 0.08, 0.045, 2.35, 0.58);
-    float softBack = auroraRibbon(uv, -0.66, 0.50, 0.16, 0.070, 3.15, 0.34);
+    float mainRibbon = auroraRibbon(uv, -0.10, 0.56, -0.10, 0.034, 3.15, 0.82);
+    float highRibbon = auroraRibbon(uv, 0.42, 0.43, 0.08, 0.052, 2.80, 0.42);
+    float softBack = auroraRibbon(uv, -0.66, 0.50, 0.16, 0.080, 3.55, 0.24);
     float glow = mainRibbon + highRibbon + softBack;
 
     float t = Time * 0.04;
@@ -115,12 +119,12 @@ float3 auroraColor(float2 uv)
     float3 violet = float3(0.50, 0.14, 0.82);
 
     float3 color = lerp(teal, green, warmGreen);
-    color = lerp(color, mint, saturate(glow * 0.34));
+    color = lerp(color, mint, saturate(glow * 0.24));
 
     // Violet sits on one side like the reference photos, not over the full sky.
     float violetArea = smoothstep(-0.95, -0.20, (uv.x - 0.5) * (Resolution.x / max(Resolution.y, 1.0)))
         * (1.0 - smoothstep(0.06, 0.48, uv.y));
-    color = lerp(color, violet, violetArea * saturate(glow * 0.50));
+    color = lerp(color, violet, violetArea * saturate(glow * 0.34));
 
     return color * glow;
 }
@@ -133,7 +137,7 @@ float3 stars(float2 uv)
     float star = step(0.9965, hash21(grid));
     float twinkle = 0.35 + 0.65 * hash21(grid + floor(Time * 0.35));
 
-    return float3(0.30, 0.42, 0.55) * star * twinkle * (1.0 - smoothstep(0.2, 0.95, uv.y)) * 0.23;
+    return float3(0.30, 0.42, 0.55) * star * twinkle * (1.0 - smoothstep(0.2, 0.95, uv.y)) * 0.14;
 }
 
 float4 main(float4 pos : SV_POSITION, float2 tex : TEXCOORD) : SV_TARGET
@@ -145,7 +149,7 @@ float4 main(float4 pos : SV_POSITION, float2 tex : TEXCOORD) : SV_TARGET
                       float3(0.010, 0.024, 0.036),
                       1.0 - uv.y);
 
-    float3 bg = sky + stars(uv) + auroraColor(uv) * 0.62;
+    float3 bg = sky + stars(uv) + auroraColor(uv) * 0.44;
 
     // Organic edge darkening helps cover Terminal's un-celled border strips.
     float2 dd = min(uv, 1.0 - uv);
