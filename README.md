@@ -22,9 +22,7 @@ For the intended look, give that profile a solid black color scheme and **no**
 
 ## License (this repository)
 
-**Original work** in this repo — the AI-assisted aurora shaders, `grid_gemini.hlsl`,
-`aurora_shadertoy.glsl`, `terminal.png`, and this README — is licensed under the
-[**MIT License**](LICENSE). You may use, modify, and redistribute it for any
+**Original work** in this repo — most AI shaders with the exceptions below. You may use, modify, and redistribute it for any
 purpose (including commercial), with only the MIT attribution notice preserved.
 
 **Excluded from MIT** (they keep their own licenses; see table below):
