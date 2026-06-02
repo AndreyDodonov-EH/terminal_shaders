@@ -1,6 +1,10 @@
 // Windows Terminal pixel shader
 // Converted from a Shadertoy (GLSL) shader to HLSL.
 // Original shader: https://www.shadertoy.com/view/XstXR2
+// Author: see the Shadertoy page above (credit them when redistributing).
+// License: Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported
+//          (Shadertoy default unless the author stated another license on-site).
+// Changes: GLSL→HLSL; Y-axis flip for Terminal; logo composited under text via shaderTexture.
 
 Texture2D shaderTexture;
 SamplerState samplerState;
