@@ -19,6 +19,68 @@ cbuffer PixelShaderSettings
     float4 Background;
 };
 
+// ============================================================================
+//  TUNABLES -- everything you'd normally want to tweak lives here. These are
+//  compile-time constants (#define / static const), so there is no runtime cost.
+// ============================================================================
+
+// --- Animation speeds (higher = faster) ---
+#define CURTAIN_SPEED   0.05   // folding / drift of the curtains
+#define COLOR_SPEED     0.04   // green<->teal shimmer
+#define STAR_SPEED      0.40   // twinkle rate
+#define EDGE_SPEED      0.035  // wobble of the vignette border
+
+// --- Overall look ---
+#define AURORA_BRIGHTNESS 0.50 // master aurora intensity
+#define VIGNETTE_SOFTNESS 0.12 // edge fade width; set very large to disable
+#define STAR_THRESHOLD    0.9968 // higher = fewer stars (max 1.0)
+#define STAR_BRIGHTNESS   0.13
+
+// --- Noise detail vs. performance ---
+#define FBM_OCTAVES       5  // full-detail noise (the visible ray texture)
+#define FBM_FAST_OCTAVES  3  // cheap noise for low-frequency fields (fringe, reach, border)
+
+// --- Curtains ---
+// The single most basic knob: how many curtain layers are summed (1..3).
+// Fewer = faster and sparser; each layer below is one curtain.
+#define CURTAIN_COUNT 3
+
+// Per-layer params: SEED, FRINGE_Y, SLOPE, REACH, RAY_FREQ, INTENSITY.
+// FRINGE_Y is the base height (0 = top, 1 = bottom). REACH is how far rays
+// climb. RAY_FREQ controls line spacing (higher = more, thinner lines).
+#define C1_SEED -0.05
+#define C1_FRINGE 0.48
+#define C1_SLOPE -0.06
+#define C1_REACH 0.34
+#define C1_RAYFREQ 11.0
+#define C1_INTENSITY 1.00
+
+#define C2_SEED -0.70
+#define C2_FRINGE 0.40
+#define C2_SLOPE 0.10
+#define C2_REACH 0.28
+#define C2_RAYFREQ 9.0
+#define C2_INTENSITY 0.55
+
+#define C3_SEED 0.55
+#define C3_FRINGE 0.52
+#define C3_SLOPE -0.12
+#define C3_REACH 0.40
+#define C3_RAYFREQ 7.5
+#define C3_INTENSITY 0.42
+
+// --- Palette ---
+static const float3 COL_TEAL    = float3(0.02, 0.52, 0.42); // shimmer low
+static const float3 COL_GREEN   = float3(0.16, 1.00, 0.40); // shimmer high (dominant)
+static const float3 COL_MINT    = float3(0.65, 1.00, 0.74); // brightest cores
+static const float3 COL_PINK    = float3(0.85, 0.18, 0.55); // lower-fringe tint
+static const float3 COL_VIOLET  = float3(0.45, 0.16, 0.85); // high faint tips
+static const float3 SKY_TOP     = float3(0.009, 0.022, 0.034);
+static const float3 SKY_BOTTOM  = float3(0.003, 0.006, 0.015);
+static const float3 STAR_COLOR  = float3(0.30, 0.42, 0.55);
+
+// ============================================================================
+
 // ---- Noise helpers ---------------------------------------------------------
 
 float hash21(float2 p)
@@ -49,7 +111,7 @@ float fbm(float2 p)
     float amp = 0.5;
     float2x2 rot = float2x2(0.82, -0.57, 0.57, 0.82);
 
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < FBM_OCTAVES; i++)
     {
         sum += amp * valueNoise(p);
         p = mul(rot, p) * 2.03;
@@ -59,16 +121,17 @@ float fbm(float2 p)
     return sum;
 }
 
-// Cheap 3-octave noise for smooth, low-frequency fields (fringe fold, per-column
-// reach, border wave). Visually indistinguishable there but ~40% less work than
-// the 5-octave version, which is the bulk of the per-pixel cost.
-float fbm3(float2 p)
+// Fewer-octave (hence faster) noise for low-frequency fields (fringe fold,
+// per-column reach, border wave). Fewer passes also means smoother output,
+// which is exactly what those smooth fields want -- and it's the bulk of the
+// per-pixel cost, so using it there is the main performance win.
+float fbmFast(float2 p)
 {
     float sum = 0.0;
     float amp = 0.5;
     float2x2 rot = float2x2(0.82, -0.57, 0.57, 0.82);
 
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < FBM_FAST_OCTAVES; i++)
     {
         sum += amp * valueNoise(p);
         p = mul(rot, p) * 2.03;
@@ -84,18 +147,17 @@ float fbm3(float2 p)
 // "fringeY" and vertical rays that rise toward the top (smaller y). The height
 // each ray reaches is modulated by noise across x, which is what makes the top
 // edge ragged instead of one flat line.
-float curtain(float2 uv, float seed, float fringeBase, float slope,
+// "p" is the aspect-corrected coordinate and "t" the curtain time, both passed
+// in so they are computed once per pixel instead of once per curtain.
+float curtain(float2 p, float t, float seed, float fringeBase, float slope,
               float reachBase, float rayFreq, float intensity)
 {
-    float t = Time * 0.05;
-    float aspect = Resolution.x / max(Resolution.y, 1.0);
-    float2 p = float2((uv.x - 0.5) * aspect, uv.y);
     float x = p.x + seed;
 
     // Wavy, folding lower fringe -- the bright bottom edge of the curtain.
     float fold = sin(x * 1.25 + t * 0.9) * 0.045
                + sin(x * 2.70 - t * 0.6) * 0.022
-               + (fbm3(float2(x * 1.10, seed * 2.0)) - 0.5) * 0.06;
+               + (fbmFast(float2(x * 1.10, seed * 2.0)) - 0.5) * 0.06;
     float fringeY = fringeBase + slope * p.x + fold;
 
     // Distance above (toward top) the fringe.
@@ -103,7 +165,7 @@ float curtain(float2 uv, float seed, float fringeBase, float slope,
 
     // Per-column reach: how high this vertical slice climbs. Varying it across
     // x is what gives the aurora its uneven, non-aligned top edge.
-    float reachNoise = fbm3(float2(x * 1.7 + t * 0.3, seed * 4.0));
+    float reachNoise = fbmFast(float2(x * 1.7 + t * 0.3, seed * 4.0));
     float reach = reachBase * (0.30 + reachNoise * 1.05);
 
     // Vertical body that fades upward; columns die out at different heights.
@@ -115,9 +177,11 @@ float curtain(float2 uv, float seed, float fringeBase, float slope,
     float edge = exp(-d * d);
 
     // Vertical rays: high frequency in x, low in y -> streaks that run up/down.
+    // raysA keeps full detail (the visible ray texture); raysB only feeds a hard
+    // threshold and its top octaves are sub-pixel shimmer, so 3 octaves suffice.
     float wobble = sin(p.y * 2.2 + t * 1.2 + seed) * 0.25;
     float raysA = fbm(float2(x * rayFreq + wobble, p.y * 0.9 - t * 0.4 + seed));
-    float raysB = fbm(float2(x * rayFreq * 2.15 - t * 0.3, p.y * 1.3 + seed * 3.0));
+    float raysB = fbmFast(float2(x * rayFreq * 2.15 - t * 0.3, p.y * 1.3 + seed * 3.0));
     raysA = smoothstep(0.42, 0.95, raysA);
     raysB = smoothstep(0.55, 0.97, raysB);
     float rayMix = raysA * 0.75 + raysB * 0.45;
@@ -132,47 +196,48 @@ float curtain(float2 uv, float seed, float fringeBase, float slope,
     return glow * side * intensity;
 }
 
-float3 auroraColor(float2 uv)
+float3 auroraColor(float2 uv, float aspect)
 {
-    // A few curtains at different depths, positions and ray scales.
-    float main = curtain(uv, -0.05, 0.48, -0.06, 0.34, 11.0, 1.00);
-    float left = curtain(uv, -0.70, 0.40,  0.10, 0.28,  9.0, 0.55);
-    float far  = curtain(uv,  0.55, 0.52, -0.12, 0.40,  7.5, 0.42);
-    float glow = main + left + far;
+    // Compute the aspect-corrected coord and curtain-time once, share across all
+    // curtains instead of recomputing inside each.
+    float ct = Time * CURTAIN_SPEED;
+    float2 cp = float2((uv.x - 0.5) * aspect, uv.y);
 
-    float t = Time * 0.04;
+    float glow = curtain(cp, ct, C1_SEED, C1_FRINGE, C1_SLOPE, C1_REACH, C1_RAYFREQ, C1_INTENSITY);
+#if CURTAIN_COUNT >= 2
+    glow += curtain(cp, ct, C2_SEED, C2_FRINGE, C2_SLOPE, C2_REACH, C2_RAYFREQ, C2_INTENSITY);
+#endif
+#if CURTAIN_COUNT >= 3
+    glow += curtain(cp, ct, C3_SEED, C3_FRINGE, C3_SLOPE, C3_REACH, C3_RAYFREQ, C3_INTENSITY);
+#endif
+
+    float t = Time * COLOR_SPEED;
 
     // Green-dominant body with a teal shimmer.
     float shimmer = 0.5 + 0.5 * sin(uv.x * 5.0 + t);
-    float3 teal  = float3(0.02, 0.52, 0.42);
-    float3 green = float3(0.16, 1.00, 0.40);
-    float3 mint  = float3(0.65, 1.00, 0.74);
-    float3 color = lerp(teal, green, shimmer);
-    color = lerp(color, mint, saturate(glow * 0.20));
+    float3 color = lerp(COL_TEAL, COL_GREEN, shimmer);
+    color = lerp(color, COL_MINT, saturate(glow * 0.20));
 
     // Magenta/pink at the lower fringe, the way real curtains tint at the base.
-    float3 pink = float3(0.85, 0.18, 0.55);
     float lowTint = smoothstep(0.30, 0.62, uv.y);
-    color = lerp(color, pink, lowTint * saturate(glow * 0.30));
+    color = lerp(color, COL_PINK, lowTint * saturate(glow * 0.30));
 
     // Violet on the high, faint tips toward the top of the sky.
-    float3 violet = float3(0.45, 0.16, 0.85);
     float highTint = (1.0 - smoothstep(0.05, 0.40, uv.y));
-    color = lerp(color, violet, highTint * saturate(glow * 0.22));
+    color = lerp(color, COL_VIOLET, highTint * saturate(glow * 0.22));
 
     return color * glow;
 }
 
-float3 stars(float2 uv)
+float3 stars(float2 uv, float aspect)
 {
-    float aspect = Resolution.x / max(Resolution.y, 1.0);
     float2 p = float2(uv.x * aspect, uv.y);
     float2 grid = floor(p * 200.0);
-    float star = step(0.9968, hash21(grid));
-    float twinkle = 0.35 + 0.65 * hash21(grid + floor(Time * 0.4));
+    float star = step(STAR_THRESHOLD, hash21(grid));
+    float twinkle = 0.35 + 0.65 * hash21(grid + floor(Time * STAR_SPEED));
 
-    return float3(0.30, 0.42, 0.55) * star * twinkle
-         * (1.0 - smoothstep(0.25, 0.95, uv.y)) * 0.13;
+    return STAR_COLOR * star * twinkle
+         * (1.0 - smoothstep(0.25, 0.95, uv.y)) * STAR_BRIGHTNESS;
 }
 
 float4 main(float4 pos : SV_POSITION, float2 tex : TEXCOORD) : SV_TARGET
@@ -180,18 +245,19 @@ float4 main(float4 pos : SV_POSITION, float2 tex : TEXCOORD) : SV_TARGET
     float2 uv = tex;
     float4 terminal = shaderTexture.Sample(samplerState, tex);
 
-    // Dark night-sky gradient, slightly cooler near the top.
-    float3 sky = lerp(float3(0.003, 0.006, 0.015),
-                      float3(0.009, 0.022, 0.034),
-                      1.0 - uv.y);
+    // Aspect computed once and shared by the aurora and the stars.
+    float aspect = Resolution.x / max(Resolution.y, 1.0);
 
-    float3 bg = sky + stars(uv) + auroraColor(uv) * 0.50;
+    // Dark night-sky gradient, slightly cooler near the top.
+    float3 sky = lerp(SKY_BOTTOM, SKY_TOP, 1.0 - uv.y);
+
+    float3 bg = sky + stars(uv, aspect) + auroraColor(uv, aspect) * AURORA_BRIGHTNESS;
 
     // Organic edge darkening to hide Terminal's un-celled border strips.
     float2 dd = min(uv, 1.0 - uv);
     float edgeDistance = min(dd.x, dd.y);
-    edgeDistance += (fbm3(uv * 3.2 + Time * 0.035) - 0.5) * 0.045;
-    bg *= smoothstep(0.0, 0.12, edgeDistance);
+    edgeDistance += (fbmFast(uv * 3.2 + Time * EDGE_SPEED) - 0.5) * 0.045;
+    bg *= smoothstep(0.0, VIGNETTE_SOFTNESS, edgeDistance);
 
     // Keep terminal text readable by compositing bright content on top.
     float luma = dot(terminal.rgb, float3(0.299, 0.587, 0.114));

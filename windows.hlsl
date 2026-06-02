@@ -1,5 +1,6 @@
 // Windows Terminal pixel shader
 // Converted from a Shadertoy (GLSL) shader to HLSL.
+// Original shader: https://www.shadertoy.com/view/XstXR2
 
 Texture2D shaderTexture;
 SamplerState samplerState;
