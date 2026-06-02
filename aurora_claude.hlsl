@@ -42,6 +42,7 @@ float valueNoise(float2 p)
     return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
 }
 
+// Full-detail noise, used where fine structure matters (the rays).
 float fbm(float2 p)
 {
     float sum = 0.0;
@@ -49,6 +50,25 @@ float fbm(float2 p)
     float2x2 rot = float2x2(0.82, -0.57, 0.57, 0.82);
 
     for (int i = 0; i < 5; i++)
+    {
+        sum += amp * valueNoise(p);
+        p = mul(rot, p) * 2.03;
+        amp *= 0.5;
+    }
+
+    return sum;
+}
+
+// Cheap 3-octave noise for smooth, low-frequency fields (fringe fold, per-column
+// reach, border wave). Visually indistinguishable there but ~40% less work than
+// the 5-octave version, which is the bulk of the per-pixel cost.
+float fbm3(float2 p)
+{
+    float sum = 0.0;
+    float amp = 0.5;
+    float2x2 rot = float2x2(0.82, -0.57, 0.57, 0.82);
+
+    for (int i = 0; i < 3; i++)
     {
         sum += amp * valueNoise(p);
         p = mul(rot, p) * 2.03;
@@ -75,7 +95,7 @@ float curtain(float2 uv, float seed, float fringeBase, float slope,
     // Wavy, folding lower fringe -- the bright bottom edge of the curtain.
     float fold = sin(x * 1.25 + t * 0.9) * 0.045
                + sin(x * 2.70 - t * 0.6) * 0.022
-               + (fbm(float2(x * 1.10, seed * 2.0)) - 0.5) * 0.06;
+               + (fbm3(float2(x * 1.10, seed * 2.0)) - 0.5) * 0.06;
     float fringeY = fringeBase + slope * p.x + fold;
 
     // Distance above (toward top) the fringe.
@@ -83,15 +103,16 @@ float curtain(float2 uv, float seed, float fringeBase, float slope,
 
     // Per-column reach: how high this vertical slice climbs. Varying it across
     // x is what gives the aurora its uneven, non-aligned top edge.
-    float reachNoise = fbm(float2(x * 1.7 + t * 0.3, seed * 4.0));
+    float reachNoise = fbm3(float2(x * 1.7 + t * 0.3, seed * 4.0));
     float reach = reachBase * (0.30 + reachNoise * 1.05);
 
     // Vertical body that fades upward; columns die out at different heights.
     float body = (rise > 0.0) ? exp(-rise / max(reach, 0.02)) : 0.0;
     body *= smoothstep(-0.015, 0.02, rise); // clip just below the fringe
 
-    // Bright, thin lower fringe line.
-    float edge = exp(-pow((p.y - fringeY) / 0.014, 2.0));
+    // Bright, thin lower fringe line (d*d is cheaper than pow()).
+    float d = (p.y - fringeY) / 0.014;
+    float edge = exp(-d * d);
 
     // Vertical rays: high frequency in x, low in y -> streaks that run up/down.
     float wobble = sin(p.y * 2.2 + t * 1.2 + seed) * 0.25;
@@ -169,7 +190,7 @@ float4 main(float4 pos : SV_POSITION, float2 tex : TEXCOORD) : SV_TARGET
     // Organic edge darkening to hide Terminal's un-celled border strips.
     float2 dd = min(uv, 1.0 - uv);
     float edgeDistance = min(dd.x, dd.y);
-    edgeDistance += (fbm(uv * 3.2 + Time * 0.035) - 0.5) * 0.045;
+    edgeDistance += (fbm3(uv * 3.2 + Time * 0.035) - 0.5) * 0.045;
     bg *= smoothstep(0.0, 0.12, edgeDistance);
 
     // Keep terminal text readable by compositing bright content on top.
