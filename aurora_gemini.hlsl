@@ -77,7 +77,8 @@ float3 auroraColor(float2 uv)
                     + sin(p.x * (2.5 - fi * 0.2) - layerTime * 1.1) * 0.1;
         
         // Add organic noise to make the bottom edge less perfect/smooth
-        curve += (fbm(float2(p.x * 3.0 + fi, layerTime * 0.5)) - 0.5) * 0.2;
+        // Use valueNoise instead of fbm to save performance
+        curve += (valueNoise(float2(p.x * 3.0 + fi, layerTime * 0.5)) - 0.5) * 0.2;
         
         // Shift each layer vertically
         float curtainCenter = 0.4 + fi * 0.1 + curve;
@@ -93,23 +94,28 @@ float3 auroraColor(float2 uv)
         }
         
         // Rays: stretch X heavily to get vertical lines, warp with noise
-        float2 rayPos = float2(p.x * (12.0 + fi * 2.0) + fbm(p * 3.0 + layerTime) * 2.0 - layerTime * 5.0, p.y * 0.5);
-        float rays = fbm(rayPos);
+        // Use valueNoise instead of fbm for the warp to save performance
+        float2 rayPos = float2(p.x * (12.0 + fi * 2.0) + valueNoise(p * 3.0 + layerTime) * 2.0 - layerTime * 5.0, p.y * 0.5);
+        
+        // Use fewer octaves for the rays to save performance
+        float rays = valueNoise(rayPos) * 0.5 + valueNoise(rayPos * 2.0) * 0.25;
         
         // Make the rays look like discrete lines rather than vapor
-        rays = pow(saturate(rays), 4.0) * 4.0;
+        rays = smoothstep(0.1, 0.8, rays);
+        rays = pow(rays, 3.0) * 3.0;
         
         // Add some high frequency noise to the rays for texture
-        float fineNoise = valueNoise(float2(p.x * 50.0, p.y * 10.0));
-        rays *= lerp(0.7, 1.0, fineNoise);
+        // Removed to save performance, as it's a subtle effect
         
-        float intensity = profile * rays;
+        // Add a cheap base glow so the curtain isn't completely black between rays
+        float intensity = profile * (rays + 0.15);
         
-        // Colors
+        // Colors - shift slightly based on X position and time for a richer look
         float3 baseColor;
-        if (i == 0) baseColor = float3(0.15, 0.95, 0.45);    // Bright green
-        else if (i == 1) baseColor = float3(0.05, 0.8, 0.6); // Teal
-        else baseColor = float3(0.4, 0.2, 0.9);              // Purple
+        float colorShift = sin(p.x * 2.0 + layerTime) * 0.5 + 0.5;
+        if (i == 0) baseColor = lerp(float3(0.15, 0.95, 0.45), float3(0.05, 0.8, 0.6), colorShift); // Green to Teal
+        else if (i == 1) baseColor = lerp(float3(0.05, 0.8, 0.6), float3(0.2, 0.4, 0.8), colorShift); // Teal to Blue
+        else baseColor = lerp(float3(0.4, 0.2, 0.9), float3(0.8, 0.1, 0.5), colorShift);              // Purple to Pink
         
         // Top fade color (reddish/pinkish as seen in real auroras)
         float topFade = smoothstep(0.0, -0.5, dist); 
@@ -129,9 +135,9 @@ float4 main(float4 pos : SV_POSITION, float2 tex : TEXCOORD) : SV_TARGET
 
     float4 base = shaderTexture.Sample(samplerState, tex);
 
-    // Very dark night-sky gradient with a faint green-blue cast at the top.
-    float3 sky = lerp(float3(0.002, 0.005, 0.015),
-                      float3(0.008, 0.020, 0.030),
+    // Very dark night-sky gradient with a richer deep blue/purple cast at the top.
+    float3 sky = lerp(float3(0.002, 0.004, 0.010),
+                      float3(0.010, 0.015, 0.035),
                       1.0 - uv.y);
 
     // Realistic aurora on top of the sky.
@@ -142,7 +148,8 @@ float4 main(float4 pos : SV_POSITION, float2 tex : TEXCOORD) : SV_TARGET
     // also hides the thin un-celled black strip Terminal leaves at the edges.
     float2 dd = min(uv, 1.0 - uv);                 // distance to nearest edge
     float ne = min(dd.x, dd.y);
-    ne += (fbm(uv * 3.0 + Time * 0.04) - 0.5) * 0.06; // wavy, natural border
+    // Use valueNoise instead of fbm to save performance
+    ne += (valueNoise(uv * 3.0 + Time * 0.04) - 0.5) * 0.06; // wavy, natural border
     float edge = smoothstep(0.0, 0.14, ne);
     bg *= edge;
 
