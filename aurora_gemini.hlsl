@@ -56,17 +56,6 @@ float fbm(float2 p)
     return sum;
 }
 
-// ---- Stars ----------------------------------------------------------------
-
-float stars(float2 uv) 
-{
-    float2 p = uv * float2(Resolution.x / Resolution.y, 1.0) * 300.0;
-    float n = hash21(floor(p));
-    float d = length(frac(p) - 0.5);
-    float star = smoothstep(0.4, 0.1, d) * smoothstep(0.98, 1.0, n);
-    return star * (0.6 + 0.4 * sin(Time * 3.0 + n * 100.0));
-}
-
 // ---- Aurora ---------------------------------------------------------------
 
 float3 auroraColor(float2 uv)
@@ -86,6 +75,9 @@ float3 auroraColor(float2 uv)
         // Base curve of the curtain: creates a wavy baseline
         float curve = sin(p.x * (1.2 + fi * 0.3) + layerTime) * 0.15 
                     + sin(p.x * (2.5 - fi * 0.2) - layerTime * 1.1) * 0.1;
+        
+        // Add organic noise to make the bottom edge less perfect/smooth
+        curve += (fbm(float2(p.x * 3.0 + fi, layerTime * 0.5)) - 0.5) * 0.2;
         
         // Shift each layer vertically
         float curtainCenter = 0.4 + fi * 0.1 + curve;
@@ -141,9 +133,6 @@ float4 main(float4 pos : SV_POSITION, float2 tex : TEXCOORD) : SV_TARGET
     float3 sky = lerp(float3(0.002, 0.005, 0.015),
                       float3(0.008, 0.020, 0.030),
                       1.0 - uv.y);
-
-    // Add twinkling stars
-    sky += stars(uv) * 0.8;
 
     // Realistic aurora on top of the sky.
     float3 bg = sky + auroraColor(uv) * 0.7;
