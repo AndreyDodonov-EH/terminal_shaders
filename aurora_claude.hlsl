@@ -25,16 +25,16 @@ cbuffer PixelShaderSettings
 // ============================================================================
 
 // --- Animation speeds (higher = faster) ---
-#define CURTAIN_SPEED   0.05   // folding / drift of the curtains
+#define CURTAIN_SPEED   0.2   // folding / drift of the curtains
 #define COLOR_SPEED     0.04   // green<->teal shimmer
-#define STAR_SPEED      0.40   // twinkle rate
+// #define STAR_SPEED      0.40   // twinkle rate
 #define EDGE_SPEED      0.035  // wobble of the vignette border
 
 // --- Overall look ---
 #define AURORA_BRIGHTNESS 0.50 // master aurora intensity
 #define VIGNETTE_SOFTNESS 0.12 // edge fade width; set very large to disable
-#define STAR_THRESHOLD    0.9968 // higher = fewer stars (max 1.0)
-#define STAR_BRIGHTNESS   0.13
+// #define STAR_THRESHOLD    0.9968 // higher = fewer stars (max 1.0)
+// #define STAR_BRIGHTNESS   0.13
 
 // --- Noise detail vs. performance ---
 #define FBM_OCTAVES       5  // full-detail noise (the visible ray texture)
@@ -229,16 +229,16 @@ float3 auroraColor(float2 uv, float aspect)
     return color * glow;
 }
 
-float3 stars(float2 uv, float aspect)
-{
-    float2 p = float2(uv.x * aspect, uv.y);
-    float2 grid = floor(p * 200.0);
-    float star = step(STAR_THRESHOLD, hash21(grid));
-    float twinkle = 0.35 + 0.65 * hash21(grid + floor(Time * STAR_SPEED));
+// float3 stars(float2 uv, float aspect)
+// {
+//     float2 p = float2(uv.x * aspect, uv.y);
+//     float2 grid = floor(p * 200.0);
+//     float star = step(STAR_THRESHOLD, hash21(grid));
+//     float twinkle = 0.35 + 0.65 * hash21(grid + floor(Time * STAR_SPEED));
 
-    return STAR_COLOR * star * twinkle
-         * (1.0 - smoothstep(0.25, 0.95, uv.y)) * STAR_BRIGHTNESS;
-}
+//     return STAR_COLOR * star * twinkle
+//          * (1.0 - smoothstep(0.25, 0.95, uv.y)) * STAR_BRIGHTNESS;
+// }
 
 float4 main(float4 pos : SV_POSITION, float2 tex : TEXCOORD) : SV_TARGET
 {
@@ -251,7 +251,7 @@ float4 main(float4 pos : SV_POSITION, float2 tex : TEXCOORD) : SV_TARGET
     // Dark night-sky gradient, slightly cooler near the top.
     float3 sky = lerp(SKY_BOTTOM, SKY_TOP, 1.0 - uv.y);
 
-    float3 bg = sky + stars(uv, aspect) + auroraColor(uv, aspect) * AURORA_BRIGHTNESS;
+    float3 bg = sky + auroraColor(uv, aspect) * AURORA_BRIGHTNESS;
 
     // Organic edge darkening to hide Terminal's un-celled border strips.
     float2 dd = min(uv, 1.0 - uv);
